@@ -1,0 +1,193 @@
+buat project embedded system
+
+Nama Project : Electrical Sequencer System
+
+Overview Alat
+(Functions & Features): 1. General Functions
+                        - Alat ini berfungsi untuk menyalakan 8 Output Outlet 220VAC secara berurutan/sequencing dari 8 Channel relay yang dikontrol oleh ESP32 Devkit V1
+                        - Alat ini juga berfungsi sebagai proteksi: Under/Overvoltage (hanya Master Source) dan Overcurrent (per-channel Output Outlet) yang bisa disetting threshold nya di Menu Config
+                        - Alat ini dikontrol penuh secara lokal tanpa IoT dengan menggunakan Interface LCD I2C 20x4 dan 4 Push Button untuk kontrol Menu di LCD
+                        - Alat ini mengedepankan user-friendly untuk target user menengah-awam
+                        
+                        2. Features
+                        - dilengkapi dengan 2 Level Config: Programmer Level Config - config.h & User Level Config - Menu Config lewat LCD
+                        - memiliki Display Monitoring dan Menu Config 
+                        - memiliki 4 Push Button (NO, not latching), 1 tombol khusus untuk ON/OFF Output Outlet dan 3 untuk Navigasi Menu (<, Enter/Back, >)
+                        - dilengkapi dengan 1 buah PZEM-004T-100A (UART) untuk Master Source dengan (parameter yang dipakai: Voltage, Current, Frequency, Active Energy) dan 8 buah sensor Arus ACS712 untuk Arus per channel Output Outlet AC
+
+Spesifikasi Alat
+(Electrical Hardware) : 1. Controller
+                        - ESP32 Devkit V1 30 Pin
+                        
+                        2. Input
+                        - 1x PZEM-004T 100A (UART) (Master Source) 
+                          = PZEM adalah module paling depan dari semua sensor dan berfungsi untuk mengecek tegangan dan arus sebelum tegangan dan arus tersebut di distribusikan ke 8 channel outlet
+                        - 8x ACS712 Analog Current Sensor (Outlet Current Sensor)
+                          = ACS712 adalah module sensor arus untuk mengecek arus AC setiap channel dan memastikan arus AC setiap channel tetap di bawah threshold config masing-masing channel (setiap channel memiliki threshold yang berbeda-beda, ada yang CH1=10A, CH2=15A, CH3=5A, dst, tergantung user config)
+                        - 2x ADS1115 I2C (masing-masing ADS1115 handle 4 sensor ACS712)
+                          = ADS1115 digunakan sebagai ADC external untuk menerima input analog dari 8 channel ACS712 untuk mendapatkan ke presisian dan resolusi data yang jauh lebar dan lebih baik dari Built-in ADC ESP32, setiap 1 buah ADS1115 menghandle 4 buah sensor ACS712 dan dibedakan setiap address I2C ADS1115 
+                        - 4x Push Button Normally Open, Not Latching (1 button untuk ON/OFF Sequence_Button, 3 button untuk Menu_Button)
+                        
+                        3. Output
+                        - 8 Channel Active Low 5V Optocoupler Relay (Always OFF saat booting)
+                          = relay ini berfungsi untuk bridging/ menyalakan relay yang ampere nya lebih besar untuk arus AC, maka dari itu buat di Programmer Config
+
+                        4. Display
+                        - 1x LCD 20x4 I2C
+
+Spesifikasi Alat
+(Software)            : 1. Software
+                        - Arduino IDE v2.3.6
+
+                        2. Board Package
+                        - esp32 v3.3.0, Board: ESP32 Dev Module 
+
+                        3. Library (yang wajib dipakai)
+                        - khusus "LiquidCrystal_I2C.cpp/.h" gunakan program library punya saya karna kompatibel dengan ESP32 (akan saya lampirkan)
+                        - PZEM004Tv30           by Jakub Mandula v1.2.1
+                        - Adafruit ADS1X15      by Adafruit v2.6.2
+
+
+Spesifikasi Alat
+(Electrical Wiring)   :
+
+//********PZEM********//
+PZEM RX - GPIO 17 TX2 ESP32
+PZEM TX - GPIO 16 RX2 ESP32
+//********PZEM********//
+
+//********ADS1115********//
+4 buah ACS (CH1-CH4) ke analog input ADS1115 pertama dan 4 buah ACS (CH5-CH8) ke analog input ADS1115 kedua, bedakan address kedua ADS1115 (0x48 & 0x49)
+SDA - GPIO 21
+SCL - GPIO 22
+//********ADS1115********//
+
+//******** 8 Channel Active Low 5V Relay ********//
+CH 1 - GPIO 13
+CH 2 - GPIO 18
+CH 3 - GPIO 19
+CH 4 - GPIO 23
+CH 5 - GPIO 25
+CH 6 - GPIO 26
+CH 7 - GPIO 27
+CH 8 - GPIO 32
+//******** 8 Channel Active Low 5V Relay ********//
+
+//******** 3 + 1 Push Button Menu ********//
+semua pakai pullup internal esp32
+SCQ_BTN     - GPIO 34
+
+LEFT_BTN    - GPIO 35
+CENTER_BTN  - GPIO 36
+RIGHT_BTN   - GPIO 39
+//******** 3 + 1 Push Button Menu ********//
+
+Struktur File Project gunakan OOP dan seperti ROS2 (Robot Operating System 2) dengan dokumentasi-dokumentasi melimpahnya dan program mudah dipahami, mudah di konfigurasi, dan bisa scalable saat penambahan fitur/sensor baru
+  (jumlah file menyesuaikan, ini hanya sebagai contoh):
+  - electric_outlet_sequencer.ino
+  - config.h
+  - data_acquisition.h/.cpp
+  - calibration.h/.cpp
+  - display.h/.cpp
+  - LiquidCrystal_I2C.h/.cpp (file library dari saya)
+  - menu.h/.cpp
+  - byte_char.h
+  - etc
+
+Spesifikasi Sistem yang akan di desain/program:
+1. Semua bagian sistem dan fungsi harus FULL asynchronous/non blocking system tanpa delay()
+2. [hardcoded & menu config] sentralisasi semua config dalam 1 file config.h dan pisahkan section config yang hardcoded (hanya bisa diakses oleh programmer lewat program) dan config yang bisa diakses/modifikasi lewat lcd menu yang akan tersimpan di EEPROM esp32
+3. [Push Button] Push Button pada alat ini ada 4:
+  - Sequence Button/SQC_BTN = hanya memiliki 1 fungsi khusus, yaitu untuk menghidupkan/mematikan 8 Channel Outlet secara sequence
+                              detail fungsi:  - bukan tombol untuk navigasi menu
+                                              - tombol ini bisa menghidupkan/mematikan 8 channel outlet di mana saja, bisa saat di "Monitoring Mode" maupun saat "User Config Mode"
+                                              - saat tombol ini ditekan dengan waktu selama 2 detik (bisa di custom di user config), maka PZEM akan cek tegangan master source apakah
+
+  - Left Button             = berfungsi untuk navigasi menu/kursor menu/config selector
+  - Center Button           = berfungsi untuk confirm(OK) button/enter button/back button, jika long press selama 1 detik (config.h) maka akan menjadi back button, jika short press akan menjadi enter button
+  - Right Button            = berfungsi untuk navigasi menu/kursor menu/config selector
+
+4. [Display LCD I2C 20 col x 4 row]
+  - Ruleset Display & Button:
+1. saat pertama kali alat dihidupkan maka lcd akan menampilkan 2 opening scene secara berurutan yang durasi masing2 scene bisa di atur di config.h (default, masing2 2 detik)
+
+1. OPENING SCREEN
+1a. opening scene 1 
+ *   ┌────────────────────┐
+ *   │       POLSRI       │  ←
+ *   │                    │  ←
+ *   │  M Wahyu Padhroni  │  ←
+ *   │    062330320656    │  ←
+ *   └────────────────────┘
+
+1b. opening scene 2 (optional, bisa di enable/disabled di config.h)
+ *   ┌────────────────────┐
+ *   │Ir. M. Nawawi, M.T. │  ←
+ *   │ 196312221991031006 │  ←
+ *   │Ir. Iskandar Lutfi, M.T.│  ← over char dibuat running text, durasi running harus lebih cepat atau sama dengan durasi scene 
+ *   │ 196501291991031002 │  ←
+ *   └────────────────────┘
+
+- jika ada scene auto kalibrasi/kalibrasi, letakkan di sini (sesudah opening dan sebelum main screen)
+
+
+2. MAIN SCREEN
+2a. Monitoring Mode: Scene 1 (Master Source Monitor dari PZEM-004T)
+ *   ┌────────────────────┐
+ *   │   220V!     100A!  │  ← 
+ *   │   50Hz      100W   │  ←
+ *   │                    │  ←
+ *   │      12345678      │  ← 
+ *   └────────────────────┘
+
+2b. Monitoring Mode: Scene 2 (Channel Current dari sensor ACS712)
+ *   ┌────────────────────┐
+ *   │CH1 100A   CH2 100A │  ←
+ *   │CH3 100A   CH4 100A │  ←
+ *   │CH5 100A   CH6 100A │  ←
+ *   │CH7 100A   CH8 100A │  ←
+ *   └────────────────────┘
+
+2c. Monitoring Mode: Scene 3 (Channel Status dari relay 8 channel) 
+ *   ┌────────────────────┐
+ *   │CH1 ON     CH2 OFF  │  ←
+ *   │CH3 OFF    CH4 TRIP │  ←
+ *   │CH5 ON     CH6 TRIP │  ←
+ *   │CH7 TRIP   CH8 ON   │  ←
+ *   └────────────────────┘
+ Penjelasan scene 3:
+ 1. setiap channel memiliki 3 status yaitu ON/OFF/TRIP (TRIP terjadi jika arus beban pada channel tertentu melebihi limit arus yang di set oleh user di config Set Limit Arus)
+
+
+3. MENU SCREEN 
+3a. Config Mode: Scene 1 (Main Menu)
+ *   ┌────────────────────┐
+ *   │CONFIG              │  ← Title/judul
+ *   │> Set Master Source │  ← Menu 1: untuk mengatur batas tegangan dan arus pada module PZEM004T seperti overvoltage, undervoltage, dan I Limit
+ *   │Set Limit Arus CH   │  ← Menu 2: untuk mengatur batas arus setiap channel dengan total seluruh channel berdasarkan batas dari I Limit PZEM dengan pembagian per channelnya tidak harus sama rata, yang penting jika semua arus CH di total tidak melebihi I Limit dari PZEM
+ *   │Set Interval SQC    │  ← Menu 3: untuk mengatur jarak sequence antar channel
+ *   └────────────────────┘
+
+3b. Config Mode: Scene 2 (Set Master Source: MAX tiap channel adalah 12.0A dengan presisi 1 desimal)
+ *   ┌────────────────────┐
+ *   │ Set Master Source  │  ← 
+ *   │ OV:         240V   │  ← jika tegangan pada PZEM menyentuh value parameter OV maka seluruh channel akan (TRIP & muncul alert ! atau tetap hidup tetapi hanya alert ! di monitoring scene 1 (aksi dapat di atur lewat config.h))
+ *   │ UV:         200V   │  ← Undervoltage: jika tegangan pada PZEM menyentuh value parameter UV maka seluruh channel akan (TRIP & muncul alert ! atau tetap hidup tetapi hanya alert ! di monitoring scene 1 (aksi dapat di atur lewat config.h))
+ *   │ I Limit:    100A   │  ← Limit Arus pada PZEM: jika arus pada PZEM menyentuh value parameter I Limit maka seluruh channel akan (TRIP & muncul alert ! atau tetap hidup tetapi hanya alert ! di monitoring scene 1 (aksi dapat di atur lewat config.h))
+ *   └────────────────────┘
+
+3c. Config Mode: Scene 3 (Set Limit Arus: MAX tiap channel adalah jika ditotal seluruh channel tidak boleh melebihi I Limit PZEM dengan presisi 1 desimal)
+ *   ┌────────────────────┐
+ *   │CH1 12.0   CH2 12.0 │  ← 
+ *   │CH3 12.0   CH4 12.0 │  ←
+ *   │CH5 12.0   CH6 12.0 │  ←
+ *   │CH7 12.0   CH8 12.0 │  ←
+ *   └────────────────────┘
+
+3d. Config Mode: Scene 4 (Set Interval SQC: mengatur interval waktu yang dibutuhkan untuk channel berikutnya hidup setelah channel sebelumnya hidup)
+ *   ┌────────────────────┐
+ *   │INV1 999   INV2 999 │  ← 
+ *   │INV3 999   INV4 999 │  ←
+ *   │INV5 999   INV6 999 │  ←
+ *   │INV7 999            │  ←
+ *   └────────────────────┘
