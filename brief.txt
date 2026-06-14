@@ -83,16 +83,17 @@ RIGHT_BTN   - GPIO 39
 //******** 3 + 1 Push Button Menu ********//
 
 Struktur File Project gunakan OOP dan seperti ROS2 (Robot Operating System 2) dengan dokumentasi-dokumentasi melimpahnya dan program mudah dipahami, mudah di konfigurasi, dan bisa scalable saat penambahan fitur/sensor baru
-  (jumlah file menyesuaikan, ini hanya sebagai contoh):
-  - electric_outlet_sequencer.ino
-  - config.h
-  - data_acquisition.h/.cpp
-  - calibration.h/.cpp
-  - display.h/.cpp
-  - LiquidCrystal_I2C.h/.cpp (file library dari saya)
-  - menu.h/.cpp
-  - byte_char.h
-  - etc
+   (jumlah file menyesuaikan, ini hanya sebagai contoh):
+   - electric_outlet_sequencer.ino
+   - config.h
+   - data_acquisition.h/.cpp
+   - calibration.h/.cpp
+   - display.h/.cpp
+   - LiquidCrystal_I2C.h/.cpp (file library dari saya)
+   - menu.h/.cpp
+   - byte_char.h
+   - etc
+   - Dokumentasi: seluruh fungsi dan baris kode menggunakan Doxygen style dalam Bahasa Indonesia
 
 Spesifikasi Sistem yang akan di desain/program:
 1. Semua bagian sistem dan fungsi harus FULL asynchronous/non blocking system tanpa delay()
@@ -101,7 +102,12 @@ Spesifikasi Sistem yang akan di desain/program:
   - Sequence Button/SQC_BTN = hanya memiliki 1 fungsi khusus, yaitu untuk menghidupkan/mematikan 8 Channel Outlet secara sequence
                               detail fungsi:  - bukan tombol untuk navigasi menu
                                               - tombol ini bisa menghidupkan/mematikan 8 channel outlet di mana saja, bisa saat di "Monitoring Mode" maupun saat "User Config Mode"
-                                              - saat tombol ini ditekan dengan waktu selama 2 detik (bisa di custom di user config), maka PZEM akan cek tegangan master source apakah
+                                               - saat tombol ini ditekan dengan waktu selama 2 detik (bisa di custom di user config), maka:
+                                                 a. PZEM akan cek tegangan master source apakah dalam range normal (antara UV dan OV)
+                                                  b. Jika tegangan dalam range normal dan channel masih OFF semua → mulai sequence ON (nyalakan channel berurutan sesuai interval, channel dengan limit 0.0A akan di-skip)
+                                                  c. Jika tegangan di luar range (UV/OV) → tampilkan alert di LCD, jangan mulai sequence
+                                                  d. Jika channel sudah ON semua → tekan SQC_BTN lagi 2 detik → sequence OFF (matikan channel berurutan sesuai interval, channel dengan limit 0.0A sudah pasti OFF dan tetap di-skip)
+                                                  e. Jika sedang dalam proses sequence (ON/OFF berlangsung) → tekan SQC_BTN diabaikan (debounce)
 
   - Left Button             = berfungsi untuk navigasi menu/kursor menu/config selector
   - Center Button           = berfungsi untuk confirm(OK) button/enter button/back button, jika long press selama 1 detik (config.h) maka akan menjadi back button, jika short press akan menjadi enter button
@@ -128,7 +134,20 @@ Spesifikasi Sistem yang akan di desain/program:
  *   │ 196501291991031002 │  ←
  *   └────────────────────┘
 
-- jika ada scene auto kalibrasi/kalibrasi, letakkan di sini (sesudah opening dan sebelum main screen)
+1c. Calibration Scene (ACS712 Auto-zero calibration, hanya tampil jika auto_cal_enable = true di config)
+     metode auto-zero:
+     - relay dalam keadaan OFF semua, tidak ada arus mengalir
+     - ambil 200-500 sampel analog per channel via ADS1115
+     - hitung median untuk filter noise spike, simpan offset V/CH di EEPROM
+     - validasi: jika offset terlalu jauh dari VCC/2 (deviasi >50mV), tandai warning "CHx !"
+     - tampilkan progress kalibrasi:
+  *   ┌────────────────────┐
+  *   │   Calibrating ACS  │  ← title
+  *   │ CH1 OK   CH2 OK    │  ← status per channel
+  *   │ CH3 OK   CH4 !     │  ← CH4 warning (deviasi tinggi)
+  *   │ CH5 OK   CH6 OK    │  ←
+  *   └────────────────────┘
+     durasi kalibrasi diatur di config.h (default: 3 detik)
 
 
 2. MAIN SCREEN
@@ -139,6 +158,21 @@ Spesifikasi Sistem yang akan di desain/program:
  *   │                    │  ←
  *   │      12345678      │  ← 
  *   └────────────────────┘
+     catatan baris ke-4: angka channel (1-8) yang sedang TRIP akan berkedip
+     menggunakan custom byte char ch* dan ch*inv (inverse) bergantian
+     interval kedipan diatur di config.h (default: 500ms)
+     kedipan berhenti setelah channel di-reset di Scene 3
+
+     Custom byte char (CGRAM positions 0-7):
+     - CGRAM pos 0 = ch1 (normal) / ch1inv (inverse, saat TRIP/blink)
+     - CGRAM pos 1 = ch2 (normal) / ch2inv (inverse)
+     - CGRAM pos 2 = ch3 (normal) / ch3inv (inverse)
+     - CGRAM pos 3 = ch4 (normal) / ch4inv (inverse)
+     - CGRAM pos 4 = ch5 (normal) / ch5inv (inverse)
+     - CGRAM pos 5 = ch6 (normal) / ch6inv (inverse)
+     - CGRAM pos 6 = ch7 (normal) / ch7inv (inverse)
+     - CGRAM pos 7 = ch8 (normal) / ch8inv (inverse)
+     Sumber: indicator_multiplexer_test.ino (program testing LCD)
 
 2b. Monitoring Mode: Scene 2 (Channel Current dari sensor ACS712)
  *   ┌────────────────────┐
@@ -157,15 +191,27 @@ Spesifikasi Sistem yang akan di desain/program:
  *   └────────────────────┘
  Penjelasan scene 3:
  1. setiap channel memiliki 3 status yaitu ON/OFF/TRIP (TRIP terjadi jika arus beban pada channel tertentu melebihi limit arus yang di set oleh user di config Set Limit Arus)
+ 2. Mode Monitoring (read-only): default setelah booting, LEFT/RIGHT pindah scene (2a↔2b↔2c, endless)
+ 3. Mode Write (edit channel): tekan CENTER (short press) di Scene 3 untuk masuk mode write:
+    a. LEFT/RIGHT untuk memilih channel (cursor bergerak antar channel)
+    b. CENTER (short press) pada channel terpilih → pilih status ON/OFF pakai LEFT/RIGHT
+    c. CENTER (short press) lagi → eksekusi perubahan status relay → kembali ke pemilihan channel (write mode)
+    d. CENTER (long press 1 detik) → kembali ke monitoring mode (read-only)
 
 
 3. MENU SCREEN 
+   - Navigasi menu menggunakan LEFT/RIGHT button secara ENDLESS (setelah menu terakhir kembali ke menu pertama, dan sebaliknya)
+   - Tekan CENTER button (short press) untuk enter ke submenu/konfirmasi
+   - Tekan CENTER button (long press 1 detik) untuk back
+   - Setiap kali selesai menyimpan setting → tampilkan "Saved!" selama 1 detik sebelum kembali ke menu sebelumnya
+
 3a. Config Mode: Scene 1 (Main Menu)
  *   ┌────────────────────┐
  *   │CONFIG              │  ← Title/judul
  *   │> Set Master Source │  ← Menu 1: untuk mengatur batas tegangan dan arus pada module PZEM004T seperti overvoltage, undervoltage, dan I Limit
  *   │Set Limit Arus CH   │  ← Menu 2: untuk mengatur batas arus setiap channel dengan total seluruh channel berdasarkan batas dari I Limit PZEM dengan pembagian per channelnya tidak harus sama rata, yang penting jika semua arus CH di total tidak melebihi I Limit dari PZEM
  *   │Set Interval SQC    │  ← Menu 3: untuk mengatur jarak sequence antar channel
+ *   │Set Calibration     │  ← Menu 4: untuk enable/disable auto calibration saat booting (ON/OFF)
  *   └────────────────────┘
 
 3b. Config Mode: Scene 2 (Set Master Source: MAX tiap channel adalah 12.0A dengan presisi 1 desimal)
@@ -176,18 +222,128 @@ Spesifikasi Sistem yang akan di desain/program:
  *   │ I Limit:    100A   │  ← Limit Arus pada PZEM: jika arus pada PZEM menyentuh value parameter I Limit maka seluruh channel akan (TRIP & muncul alert ! atau tetap hidup tetapi hanya alert ! di monitoring scene 1 (aksi dapat di atur lewat config.h))
  *   └────────────────────┘
 
-3c. Config Mode: Scene 3 (Set Limit Arus: MAX tiap channel adalah jika ditotal seluruh channel tidak boleh melebihi I Limit PZEM dengan presisi 1 desimal)
+3c. Config Mode: Scene 3 (Set Limit Arus per channel, presisi 1 desimal)
  *   ┌────────────────────┐
- *   │CH1 12.0   CH2 12.0 │  ← 
- *   │CH3 12.0   CH4 12.0 │  ←
- *   │CH5 12.0   CH6 12.0 │  ←
- *   │CH7 12.0   CH8 12.0 │  ←
+ *   │CH1 6.0    CH2 1.0  │  ← 
+ *   │CH3 1.0    CH4 0.0  │  ←
+ *   │CH5 0.0    CH6 0.0  │  ←
+ *   │CH7 0.0    CH8 0.0  │  ←
  *   └────────────────────┘
+     Aturan pembagian limit arus per channel:
+     - Setiap channel bisa diisi nilai 0.0A - max tersisa
+     - TOTAL seluruh channel TIDAK BOLEH melebihi I Limit PZEM
+     - Channel dengan nilai 0.0A = channel tidak mendapat alokasi beban
+       → channel tsb akan dilewati (skip) saat SQC sequence berjalan
+     - Contoh: I Limit PZEM = 8A, setting CH1=6A, CH2=1A, CH3=1A (total=8A)
+       → CH4-CH8 = 0.0A (tidak mendapat jatah, otomatis di-skip sequence)
+     - Kombinasi bebas: tidak harus channel 1-3 saja, bisa CH1=2A, CH5=4A, CH8=2A (total=8A)
+       → sequence hanya akan menjalankan channel yang memiliki nilai > 0.0A
+     - Setting ini bisa dimodifikasi kapan saja, bahkan saat sequence/load sedang ON
 
 3d. Config Mode: Scene 4 (Set Interval SQC: mengatur interval waktu yang dibutuhkan untuk channel berikutnya hidup setelah channel sebelumnya hidup)
  *   ┌────────────────────┐
  *   │INV1 999   INV2 999 │  ← 
  *   │INV3 999   INV4 999 │  ←
  *   │INV5 999   INV6 999 │  ←
- *   │INV7 999            │  ←
+ *   │INV7 999   INV8 999 │  ←
  *   └────────────────────┘
+
+3e. Config Mode: Scene 5 (Set Calibration: enable/disable auto zero calibration saat booting)
+ *   ┌────────────────────┐
+ *   │ Set Calibration    │  ←
+ *   │ Auto Calibrate     │  ←
+ *   │ [ON]               │  ← toggle ON/OFF pakai LEFT/RIGHT, confirm dengan CENTER
+ *   └────────────────────┘
+      catatan: menu ini hanya toggle ON/OFF untuk auto calibration saat booting
+               jika OFF, calibration scene akan dilewati langsung ke main screen
+               setting ini disimpan di EEPROM
+
+5. [Protection System] Proteksi pada alat ini terdiri dari 3 level:
+   5a. Master Source Protection (PZEM-004T):
+       - Overvoltage (OV): saat tegangan PZEM ≥ threshold OV
+       - Undervoltage (UV): saat tegangan PZEM ≤ threshold UV
+       - Overcurrent (I Limit): saat arus PZEM ≥ threshold I Limit
+       - Action untuk OV/UV/ILimit: bisa diatur di config.h (hardcoded):
+         a) TRIP_ALL + Alert: seluruh channel TRIP dan tampilkan "!" di Scene 2a
+         b) Alert Only: tampilkan "!" di Scene 2a, channel tetap berjalan
+       - Selama threshold terlanggar, "!" di Scene 2a akan tampil
+       - Saat kondisi kembali normal, TRIP_ALL bisa di-reset di Scene 3 (sama seperti reset trip biasa)
+
+   5b. Per-channel Overcurrent Protection (ACS712 + ADS1115):
+       - Setiap channel memiliki threshold arus masing-masing (diatur di Set Limit Arus CH)
+       - Jika arus channel ≥ threshold → channel auto TRIP (hanya channel itu, tidak affect channel lain)
+       - Status channel berubah menjadi TRIP, ditampilkan di Scene 3
+
+   5c. Trip Recovery (via Scene 3):
+       - Untuk channel yang sedang TRIP:
+         a. masuk ke write mode di Scene 3 (tekan CENTER short press)
+         b. pilih channel yang TRIP, tekan CENTER
+         c. pilih OFF dulu, tekan CENTER (matikan beban)
+         d. lalu pilih ON, tekan CENTER (nyalakan ulang)
+         e. jika channel normal kembali → status ON, kedipan berhenti
+       - Untuk channel ON yang ingin dimatikan manual, lakukan langkah yang sama
+       - Long press CENTER untuk kembali ke read-only mode
+
+6. [NVS Config Storage] Semua user config disimpan di Non-Volatile Storage (NVS) ESP32 via Preferences library dengan struktur:
+   - namespace: "config"
+   - key-value pairs per field:
+       "ov_thresh"       → float  (Overvoltage threshold V)
+       "uv_thresh"       → float  (Undervoltage threshold V)
+       "i_limit"         → float  (PZEM Current Limit A)
+       "ch_lim_0..7"     → float  (Per-channel current limit A)
+       "sqc_int_0..7"    → uint16_t (Sequence interval per channel ms)
+       "auto_cal"        → bool   (Auto calibration ON/OFF)
+       "sqc_btn_dly"     → uint16_t (SQC button hold time ms)
+       "blink_int"       → uint16_t (Trip blink interval ms)
+       "op_scene2"       → bool   (Opening scene 2 ON/OFF)
+   - Atau bisa juga dengan putBytes/getBytes untuk struct utuh:
+       struct UserConfig {
+         float ov_threshold;
+         float uv_threshold;
+         float i_limit;
+         float ch_current_limit[8];
+         uint16_t sqc_interval[8];
+         bool auto_cal_enable;
+         uint16_t sqc_btn_delay;
+         uint16_t blink_interval;
+         bool opening_scene_2_enable;
+       };
+   - Pada first boot (NVS kosong), default values dimuat dari config.h
+   - Validation: gunakan CRC/checksum untuk deteksi corruption
+
+7. [State Machine] Sistem berjalan dengan state machine asynchronous:
+   - STATE_IDLE          → saat boot, inisialisasi hardware
+   - STATE_OPENING       → menampilkan opening scene 1 & 2
+   - STATE_CALIBRATION   → auto-zero calibration (jika enabled)
+   - STATE_MONITORING    → main loop: display scene 2a/2b/2c (endless scroll LEFT/RIGHT)
+   - STATE_CONFIG        → menu config (enter dari monitoring, long press CENTER back)
+   Setiap state non-blocking dengan millis() timer, tanpa delay()
+
+8. [Self-Healing & Memory Optimization] Untuk memastikan uptime ESP32 sangat lama (berhari-hari hingga bulanan) tanpa restart:
+   8a. Memory Management:
+       - DILARANG menggunakan String class, malloc/free dinamis, new/delete
+       - Semua buffer harus static/fixed-size (char array, bukan String)
+       - Hindari sprintf, gunakan snprintf dengan buffer fixed
+       - Semua variable global/LCD string dialokasikan static di awal
+
+   8b. Heap Monitoring:
+       - heap_caps_get_free_size(MALLOC_CAP_INTERNAL) dipanggil periodik (misal tiap 10 menit)
+       - Jika free heap turun di bawah threshold (misal < 20% dari total awal) → restart otomatis
+       - Log free heap ke Serial untuk debugging (dapat di-enable/disable di config.h)
+
+   8c. Task Watchdog:
+       - Aktifkan ESP32 Task Watchdog Timer (TWDT) untuk mendeteksi hang
+       - Setiap state machine loop harus feed watchdog (timerAlarmWrite)
+       - Jika ada task yang blocking > threshold, WDT akan auto-reset ESP32
+
+   8d. I2C Bus Recovery:
+       - Jika komunikasi I2C (LCD/ADS1115) gagal → reset bus I2C, coba reconnect ulang
+       - Setelah 3x gagal berturut-turut → tampilkan error screen, jangan crash
+
+   8e. UART/PZEM Recovery:
+       - Jika PZEM tidak merespon → restart UART, coba inisialisasi ulang
+       - Setelah 3x gagal → tampilkan error "PZEM Error!" di LCD, system tetap jalan
+
+   8f. Auto-Restart Terjadwal (optional):
+       - Config.h: opsi enable/disable auto-restart setiap N jam (default: disabled)
+       - Jika enabled, restart dilakukan saat channel dalam kondisi OFF semua

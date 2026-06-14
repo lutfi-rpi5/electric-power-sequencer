@@ -1,0 +1,20 @@
+## 2025/06/14
+
+### Dokumentasi Brief Project
+- [Created] Membuat `progress.txt` - inisialisasi file log progress
+- [Modified] Melengkapi `brief.txt` - menyelesaikan deskripsi SQC_BTN (cek tegangan → sequence ON/OFF)
+- [Modified] Melengkapi `brief.txt` - menambahkan detail auto-zero calibration ACS712 (metode, tampilan LCD)
+- [Modified] Melengkapi `brief.txt` - menambahkan menu Set Calibration (ON/OFF toggle) di Config Mode Scene 5
+- [Modified] Melengkapi `brief.txt` - menambahkan aturan endless scroll navigasi LEFT/RIGHT
+- [Modified] Melengkapi `brief.txt` - menambahkan trip blink indicator di Scene 2a (custom byte char)
+- [Modified] Melengkapi `brief.txt` - menambahkan write mode di Scene 3 (reset TRIP & kontrol ON/OFF manual)
+- [Modified] Melengkapi `brief.txt` - menambahkan section §5 Protection System (OV/UV/ILimit TRIP_ALL/Alert Only, per-channel OC, Trip Recovery)
+- [Modified] Melengkapi `brief.txt` - menambahkan section §6 NVS Config Storage via Preferences
+- [Modified] Melengkapi `brief.txt` - menambahkan section §7 State Machine (6 state non-blocking)
+- [Modified] Melengkapi `brief.txt` - memperjelas aturan pembagian limit arus per channel (total ≤ I Limit, channel 0.0A di-skip sequence)
+- [Modified] Melengkapi `brief.txt` - menambahkan feedback "Saved!" 1 detik setelah simpan config
+- [Modified] Mengganti `brief.txt` dari EEPROM ke NVS (Preferences) untuk penyimpanan config
+- [Modified] Melengkapi `brief.txt` - menambahkan section §8 Self-Healing & Memory Optimization (heap management, watchdog, I2C/UART recovery, auto-restart)
+- [Modified] Melengkapi `brief.txt` - menambahkan aturan dokumentasi Doxygen Bahasa Indonesia
+- [Modified] Melengkapi `brief.txt` - menambahkan referensi custom byte char CGRAM posisi 0-7 dari indicator_multiplexer_test.ino
+- [Created] Membuat `README.md` - dokumentasi sistem lengkap dengan table of contents (gambaran umum, hardware, software, wiring, fitur, state machine, konfigurasi, dll)
